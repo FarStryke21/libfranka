@@ -2,6 +2,41 @@
 
 All notable changes to libfranka in this file.
 
+## [0.21.2]
+- fix broken test on builds relying on poco 1.12.x
+- docu: Maintenance work on documentation
+
+## [0.21.1]
+### libfranka - C++
+- Fix package version
+
+## [0.21.0]
+### libfranka - C++
+- Add `franka::MobileModel` class for mobile robot forward kinematics (swerve drive module poses via Pinocchio).
+- `franka::Model` now rejects mobile robot URDFs with a `ModelException`; use `franka::MobileModel` instead.
+- `Robot::loadModel()` throws `InvalidOperationException` for mobile robots; use `Robot::getRobotModel()` with `MobileModel` directly.
+- chore: disabled test building by default
+
+## [0.20.5]
+### libfranka - C++
+- fix: Sometimes the PTP motion could get stuck in 'idle' after reaching the goal while doing async PTP motions
+- feat: updated cmake_minimum_required to v3.16
+- fix: jenkins pipeline updated for internal usage
+- fix: removed `franka/robot_model.h` header for pinocchio dependency leak in public interface.
+
+## [0.20.4]
+### libfranka - C++
+- fix: valgrind will not report as error reachable-type memleaks from gtest (see https://github.com/google/googletest/issues/4109)
+- fix: patch segfault in case active control has been resetted by someone else (see franka_hardware)
+- feat: do not pick git tag if not a git repo, fallback to cmakelists version, cleanup link dependencies
+
+### pylibfranka - Python
+- fix: patch runtime error for implicitly converted vector<double> to list[float]
+
+## [0.20.3]
+### libfranka - C++
+- Disable TSAN tests for ASRL problems with gcc.
+
 ## [0.20.2]
 ### libfranka - C++
 - Fix the github workflow to push all the debian packages from 20.4, 22.04 and 24.04

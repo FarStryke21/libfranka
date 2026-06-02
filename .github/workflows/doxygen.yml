@@ -4,42 +4,103 @@ on:
   push:
     tags:
       - '*'
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   doxygen:
     runs-on: ubuntu-latest
 
+    env:
+      DOC_BASE: build/doc/docs
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-    - name: Install Doxygen
-      run: sudo apt-get install doxygen graphviz -y
+      - name: Install dependencies
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz cmake
 
-    - name: Generate Doxygen configuration and build it
-      run: |
-        TAG_NAME=$(echo $GITHUB_REF | sed 's/refs\/tags\///')
-        mkdir -p build/doc/docs/$TAG_NAME && cd build && cmake -D BUILD_DOCUMENTATION=ON -D SKIP_CXX_BUILD=ON .. && make doc
-        echo "Created folder for documentation:"
-        ls doc/docs
+      - name: Determine documentation tag
+        id: doc_tag
+        run: |
+          set -e
 
-    - name: Move contents of html folder one level up
-      run: |
-        TAG_NAME=$(echo $GITHUB_REF | sed 's/refs\/tags\///')
-        mv build/doc/docs/$TAG_NAME/html/* build/doc/docs/$TAG_NAME/
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            echo "TAG_NAME=latest" >> $GITHUB_OUTPUT
+          else
+            echo "Unsupported ref: $GITHUB_REF" >&2
+            exit 1
+          fi
 
-    - name: Create index.html for redirect
-      run: |
-        TAG_NAME=$(echo $GITHUB_REF | sed 's/refs\/tags\///')
-        URL="https://frankarobotics.github.io/libfranka/${TAG_NAME}/"
-        echo $URL
-        echo "<html><head><meta http-equiv=\"refresh\" content=\"0; url=$URL\"></head></html>" > build/doc/docs/index.html
+      - name: Build documentation
+        run: |
+          set -e
 
-    - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_branch: gh-pages
-        publish_dir: build/doc/docs
-        keep_files: true
+          TAG_NAME="${{ steps.doc_tag.outputs.TAG_NAME }}"
+          DOC_DIR="${DOC_BASE}/$TAG_NAME"
+
+          echo "Using documentation tag: $TAG_NAME"
+
+          # Clean latest deployment if rebuilding latest
+          if [[ "$TAG_NAME" == "latest" ]]; then
+            rm -rf "$DOC_DIR"
+          fi
+
+          mkdir -p "$DOC_DIR"
+
+          cd build || exit 1
+
+          cmake -D BUILD_DOCUMENTATION=ON -D SKIP_CXX_BUILD=ON ..
+          make doc
+
+      - name: Normalize HTML structure
+        run: |
+          set -e
+
+          TAG_NAME="${{ steps.doc_tag.outputs.TAG_NAME }}"
+          DOC_DIR="${DOC_BASE}/$TAG_NAME"
+
+          # Doxygen outputs to docs/<cmake_version>/html/ which may differ
+          # from TAG_NAME (e.g. "latest" vs "0.20.5"). Find the actual output.
+          BUILT_HTML=$(find "${DOC_BASE}" -type d -name html | head -1)
+
+          if [[ -n "$BUILT_HTML" && -d "$BUILT_HTML" ]]; then
+            # Move HTML contents into the target directory
+            rm -rf "$DOC_DIR"
+            mkdir -p "$DOC_DIR"
+            mv "$BUILT_HTML"/* "$DOC_DIR"/
+            # Clean up the versioned build directory if it's different from DOC_DIR
+            BUILT_PARENT=$(dirname "$BUILT_HTML")
+            if [[ "$BUILT_PARENT" != "$DOC_DIR" ]]; then
+              rm -rf "$BUILT_PARENT"
+            fi
+          else
+            echo "::error::HTML directory not found after build"
+            exit 1
+          fi
+
+      - name: Create redirect index
+        run: |
+          TAG_NAME="${{ steps.doc_tag.outputs.TAG_NAME }}"
+
+          URL="https://frankarobotics.github.io/libfranka/${TAG_NAME}/"
+
+          echo "<html><head><meta http-equiv=\"refresh\" content=\"0; url=$URL\"></head></html>" \
+            > "${DOC_BASE}/index.html"
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ${{ env.DOC_BASE }}
+          keep_files: true
